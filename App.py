@@ -38,14 +38,16 @@ def main():
             if not room_id:
                 # Create new room
                 room_id = str(uuid.uuid4())[:6]  # Shorten UUID for simplicity
-                st.session_state.rooms[room_id] = {
-                    'users': {},
-                    'votes': {'yes': 0, 'no': 0}
-                }
+                if room_id not in st.session_state.rooms:
+                    st.session_state.rooms[room_id] = {
+                        'users': {},
+                        'votes': {'yes': 0, 'no': 0}
+                    }
                 st.success(f"Created new room: {room_id}")
             else:
                 if room_id in st.session_state.rooms:
-                    st.session_state.rooms[room_id]['users'][name] = None
+                    if name not in st.session_state.rooms[room_id]['users']:
+                        st.session_state.rooms[room_id]['users'][name] = None
                     st.success(f"Joined room: {room_id}")
                 else:
                     st.error("Room does not exist!")
@@ -57,49 +59,52 @@ def main():
     # Only show voting interface if user is in a room
     if 'room' in st.session_state.user:
         room_id = st.session_state.user['room']
-        room = st.session_state.rooms[room_id]
+        room = st.session_state.rooms.get(room_id, None)
 
-        st.header("Voting Interface")
-        st.subheader(f"Room: {room_id}")
+        if room is None:
+            st.error("You are not in a valid room!")
+        else:
+            st.header("Voting Interface")
+            st.subheader(f"Room: {room_id}")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Vote Yes"):
-                room['votes']['yes'] += 1
-                room['users'][st.session_state.user['name']] = 'yes'
-                st.experimental_rerun()
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Vote Yes"):
+                    room['votes']['yes'] += 1
+                    room['users'][st.session_state.user['name']] = 'yes'
+                    st.rerun()
 
-        with col2:
-            if st.button("Vote No"):
-                room['votes']['no'] += 1
-                room['users'][st.session_state.user['name']] = 'no'
-                st.experimental_rerun()
+            with col2:
+                if st.button("Vote No"):
+                    room['votes']['no'] += 1
+                    room['users'][st.session_state.user['name']] = 'no'
+                    st.rerun()
 
-        # Display current votes
-        st.subheader("Current Results")
-        yes_votes = room['votes']['yes']
-        no_votes = room['votes']['no']
-        total_votes = yes_votes + no_votes
+            # Display current votes
+            st.subheader("Current Results")
+            yes_votes = room['votes']['yes']
+            no_votes = room['votes']['no']
+            total_votes = yes_votes + no_votes
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Yes Votes", yes_votes)
-        with col2:
-            st.metric("No Votes", no_votes)
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Yes Votes", yes_votes)
+            with col2:
+                st.metric("No Votes", no_votes)
 
-        # Calculate and display money line
-        yes_ml, no_ml = calculate_money_line(yes_votes, no_votes)
-        st.subheader("Money Line")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Yes Money Line", f"{yes_ml:.2f}")
-        with col2:
-            st.metric("No Money Line", f"{no_ml:.2f}")
+            # Calculate and display money line
+            yes_ml, no_ml = calculate_money_line(yes_votes, no_votes)
+            st.subheader("Money Line")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Yes Money Line", f"{yes_ml:.2f}")
+            with col2:
+                st.metric("No Money Line", f"{no_ml:.2f}")
 
-        # Display all users
-        st.subheader("Users in Room")
-        for user, vote in room['users'].items():
-            st.write(f"👤 {user}: {vote if vote else 'Hasn\'t voted yet'}")
+            # Display all users
+            st.subheader("Users in Room")
+            for user, vote in room['users'].items():
+                st.write(f"👤 {user}: {vote if vote else 'Hasn't voted yet'}")
 
 if __name__ == "__main__":
     main()
