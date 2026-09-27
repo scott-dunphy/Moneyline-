@@ -37,5 +37,5 @@ python make_gif.py          # writes output/manhattan_population.gif, .mp4, and 
 For 1950 onward: `IPUMS_API_KEY=... python fetch_data.py --start 1950`, or download
 the NHGIS extract yourself and add `--nhgis-dir <folder with the *_csv.zip and *_shape.zip>`.
 
-Timing flags: `--hold` (seconds per year, default 2.5), `--first-hold` (4),
-`--last-hold` (5), `--fade` (crossfade seconds, 0.6).
+Timing flags: `--hold` (seconds per year, default 1.5), `--first-hold` (2.5),
+`--last-hold` (3.5), `--fade` (crossfade seconds, 0.4).
