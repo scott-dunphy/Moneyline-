@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Geospatial Map Examples</title>
+<style>
+  :root { --ink: #1f1f1d; --ink-2: #52514e; --line: #e4e3de; --bg: #fafaf8; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 "Liberation Sans", Arial, Helvetica, sans-serif; }
+  main { max-width: 1400px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .lede { color: var(--ink-2); margin: 0 0 28px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 24px; }
+  figure { margin: 0; background: #fff; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  figure a { display: block; }
+  img { display: block; width: 100%; height: auto; }
+  figcaption { padding: 12px 14px 16px; }
+  figcaption strong { display: block; font-size: 17px; margin-bottom: 2px; }
+  figcaption span { color: var(--ink-2); font-size: 15px; }
+  footer { margin-top: 32px; color: var(--ink-2); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Six geospatial map types for real estate analysis</h1>
+  <p class="lede">Slide-ready examples built in R from public data (U.S. Census Bureau; OpenStreetMap-based routing for the isochrones) plus one clearly labeled synthetic dataset. Click a map to open the full 2400&times;1350 PNG.</p>
+  <div class="grid">
+    <figure>
+      <a href="output/01_choropleth_median_income.png"><img src="output/01_choropleth_median_income.png" alt="Choropleth map of median household income by census tract, Twin Cities region"></a>
+      <figcaption><strong>1. Choropleth</strong><span>Shades each Twin Cities census tract by its ACS 2020–2024 median household income, a normalized measure that suits area shading.</span></figcaption>
+    </figure>
+    <figure>
+      <a href="output/02_proportional_symbols_renters.png"><img src="output/02_proportional_symbols_renters.png" alt="Proportional symbol map of renter households by tract, Twin Cities region"></a>
+      <figcaption><strong>2. Proportional symbols</strong><span>Sizes a circle by each tract's count of renter households, the right way to map absolute counts rather than rates.</span></figcaption>
+    </figure>
+    <figure>
+      <a href="output/03_dot_density_race_ethnicity.png"><img src="output/03_dot_density_race_ethnicity.png" alt="Dot density map of Hennepin County population by race and ethnicity, 1 dot equals 100 people"></a>
+      <figcaption><strong>3. Dot density</strong><span>Places one dot per 100 residents of Hennepin County from the 2020 Census, colored by race and ethnicity, with water erased.</span></figcaption>
+    </figure>
+    <figure>
+      <a href="output/04_heat_map_synthetic_events.png"><img src="output/04_heat_map_synthetic_events.png" alt="Kernel density heat map of simulated point events in Minneapolis"></a>
+      <figcaption><strong>4. Heat map</strong><span>Turns simulated point events in Minneapolis into a kernel-density surface, showing event density rather than population or demand.</span></figcaption>
+    </figure>
+    <figure>
+      <a href="output/05_isochrones_mall_of_america.png"><img src="output/05_isochrones_mall_of_america.png" alt="Drive-time isochrone map around Mall of America with population reached"></a>
+      <figcaption><strong>5. Isochrones</strong><span>Draws 5-, 10- and 15-minute drive-time areas around Mall of America and estimates the population and households each one reaches.</span></figcaption>
+    </figure>
+    <figure>
+      <a href="output/06_flow_map_phoenix_inmigration.png"><img src="output/06_flow_map_phoenix_inmigration.png" alt="Flow map of the largest origin metros for movers into the Phoenix metro area"></a>
+      <figcaption><strong>6. Flow map</strong><span>Connects the 15 largest origin metros to Phoenix with arcs whose width shows ACS 2016–2020 estimated movers per year.</span></figcaption>
+    </figure>
+  </div>
+  <footer>Sources and methods are printed in each map's footer and listed in <a href="sources.md">sources.md</a>. Code: the <code>R/</code> folder; rebuild with <code>Rscript run_all.R</code>.</footer>
+</main>
+</body>
+</html>
