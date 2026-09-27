@@ -1,10 +1,14 @@
 """Download and prepare Manhattan census-tract population, 1950 -> latest ACS.
 
 Sources
-  1950-2000  Decennial census tract counts + historical tract boundaries from
-             IPUMS NHGIS (the ACS does not exist before 2005). Needs a free
-             IPUMS account: either set IPUMS_API_KEY, or log in at
-             nhgis.org, download the extract yourself and pass --nhgis-dir.
+  1990-2000  Decennial census straight from the Census Bureau (no IPUMS
+             needed): the 1990 PL 94-171 file, the 2000 SF1 via the API, and
+             the Bureau's 1990/2000 cartographic tract boundaries.
+  1950-2000  With --start 1950: decennial tract counts + historical tract
+             boundaries from IPUMS NHGIS (the ACS does not exist before 2005).
+             Needs a free IPUMS account registered for NHGIS: set
+             IPUMS_API_KEY, or download the extract yourself and pass
+             --nhgis-dir.
   2010-now   ACS 5-year estimates (table B01003, total population) from the
              Census Bureau API, on matching-vintage TIGER cartographic tracts.
   Context    TIGER cartographic county boundaries (shoreline-clipped) and
@@ -14,8 +18,9 @@ Every year's tracts are clipped to the same Manhattan shoreline so land area,
 and therefore density, is measured consistently across vintages.
 
 Usage
-  python fetch_data.py                       # everything (needs IPUMS_API_KEY)
-  python fetch_data.py --nhgis-dir ~/Downloads/nhgis_extract
+  python fetch_data.py                       # 1990 -> today, Census Bureau only
+  python fetch_data.py --start 1950          # 1950 -> today (needs IPUMS_API_KEY)
+  python fetch_data.py --start 1950 --nhgis-dir ~/Downloads/nhgis_extract
 """
 import argparse
 import datetime as dt
@@ -36,6 +41,8 @@ from config import (ACS_END_YEARS, CONTEXT_COUNTIES, COUNTY_FIPS, DECENNIAL_YEAR
 ACS_API = "https://api.census.gov/data/{year}/acs/acs5"
 TIGER = "https://www2.census.gov/geo/tiger"
 IPUMS = "https://api.ipums.org"
+PL1990_URL = "https://www2.census.gov/census_1990/1990_PL94-171/CD7%20-%20CA%20NY/pl9417ny.dbf"
+DEC2000_API = "https://api.census.gov/data/2000/dec/sf1"
 NTA_URL = "https://data.cityofnewyork.us/api/geospatial/9nt8-h7nd?method=export&format=GeoJSON"
 
 session = requests.Session()
@@ -82,6 +89,18 @@ def county_shapes(year):
     return gdf.to_crs(MAP_CRS)
 
 
+def remove_water(gdf, year):
+    """Cartographic county outlines run to the state line mid-Hudson; cut out
+    TIGER area-water polygons so only land remains."""
+    out = []
+    for geoid, row in gdf.set_index("GEOID").iterrows():
+        path = download(f"{TIGER}/TIGER{year}/AREAWATER/tl_{year}_{geoid}_areawater.zip",
+                        RAW / "tiger" / f"tl_{year}_{geoid}_areawater.zip")
+        water = gpd.read_file(f"zip://{path}").to_crs(MAP_CRS).union_all()
+        out.append({**row.to_dict(), "GEOID": geoid, "geometry": row.geometry.difference(water)})
+    return gpd.GeoDataFrame(out, crs=MAP_CRS)
+
+
 def tiger_tracts(year):
     """Cartographic-boundary tracts for Manhattan matching an ACS vintage."""
     if year == 2010:
@@ -94,6 +113,43 @@ def tiger_tracts(year):
         gdf["GEOID"] = gdf["GEO_ID"].str[-11:]
     gdf = gdf[gdf["GEOID"].str.startswith(STATE_FIPS + COUNTY_FIPS)]
     return gdf[["GEOID", "geometry"]].to_crs(MAP_CRS)
+
+
+def legacy_tracts(year):
+    """Census Bureau cartographic tracts for 1990 (NAD27) or 2000 (NAD83)."""
+    yy = str(year)[2:]
+    url = f"{TIGER}/PREVGENZ/tr/tr{yy}shp/tr{STATE_FIPS}_d{yy}_shp.zip"
+    gdf = gpd.read_file(f"zip://{download(url, RAW / 'tiger' / Path(url).name)}")
+    gdf = gdf.set_crs("EPSG:4267" if year == 1990 else "EPSG:4269")
+    if year == 1990:
+        gdf = gdf[gdf["CO"] == COUNTY_FIPS]
+        code = gdf["TRACTBASE"] + gdf["TRACTSUF"].fillna("00")
+    else:
+        gdf = gdf[gdf["COUNTY"] == COUNTY_FIPS]
+        code = gdf["TRACT"].str.ljust(6, "0")
+    gdf = gdf.assign(GEOID=STATE_FIPS + COUNTY_FIPS + code)
+    return gdf.dissolve("GEOID").reset_index()[["GEOID", "geometry"]].to_crs(MAP_CRS)
+
+
+def census_population(year):
+    if year == 1990:
+        from dbfread import DBF
+        path = download(PL1990_URL, RAW / "census1990" / "pl9417ny.dbf")
+        rows = [(r["TRACTBNA"], r["P001_0001"]) for r in DBF(path, load=False)
+                if r["SUMLEV"] == "140" and r["STATEFP"] == STATE_FIPS and r["CNTY"] == COUNTY_FIPS]
+        df = pd.DataFrame(rows, columns=["tract", "pop"])
+    else:
+        key = os.environ.get("CENSUS_API_KEY")
+        if not key:
+            raise RuntimeError("Census 2000 needs CENSUS_API_KEY.")
+        r = session.get(DEC2000_API, params={"get": "P001001", "for": "tract:*", "key": key,
+                                             "in": f"state:{STATE_FIPS} county:{COUNTY_FIPS}"}, timeout=120)
+        r.raise_for_status()
+        rows = r.json()
+        df = pd.DataFrame(rows[1:], columns=rows[0]).rename(columns={"P001001": "pop"})
+    df["GEOID"] = STATE_FIPS + COUNTY_FIPS + df["tract"].str.ljust(6, "0")
+    df["pop"] = pd.to_numeric(df["pop"])
+    return df[["GEOID", "pop"]]
 
 
 # ---------------------------------------------------------------------- ACS
@@ -232,6 +288,13 @@ def nhgis_year(nhgis_dir, year, plan):
 def finish(gdf, manhattan_land):
     gdf = gpd.clip(gdf, manhattan_land)
     gdf = gdf[~gdf.geometry.is_empty].copy()
+    # Drop slivers where generalized tract lines overlap the detailed shoreline,
+    # keeping each tract's largest piece.
+    parts = gdf.explode(index_parts=False).reset_index(drop=True)
+    parts["_a"] = parts.geometry.area
+    id_col = gdf.columns[0]
+    keep = (parts["_a"] >= 60_000) | (parts["_a"] == parts.groupby(id_col)["_a"].transform("max"))
+    gdf = parts[keep].dissolve(id_col, aggfunc="first").reset_index().drop(columns="_a")
     gdf["pop"] = gdf["pop"].fillna(0)
     gdf["area_sqmi"] = gdf.geometry.area / SQFT_PER_SQMI
     gdf["density"] = gdf["pop"] / gdf["area_sqmi"]
@@ -242,6 +305,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--nhgis-dir", help="Folder with a manually downloaded NHGIS extract "
                     "(the *_csv.zip and *_shape.zip files)")
+    ap.add_argument("--start", type=int, choices=[1950, 1990], default=1990,
+                    help="1990 uses Census Bureau files only; 1950 needs IPUMS NHGIS")
     ap.add_argument("--skip-decennial", action="store_true", help="Only fetch ACS years")
     args = ap.parse_args()
     PROCESSED.mkdir(parents=True, exist_ok=True)
@@ -252,6 +317,7 @@ def main():
     print(f"  latest is {latest - 4}-{latest}")
 
     counties = county_shapes(latest)
+    counties = remove_water(counties[counties["GEOID"].isin([STATE_FIPS + COUNTY_FIPS, *CONTEXT_COUNTIES])], latest)
     manhattan_land = counties[counties["GEOID"] == STATE_FIPS + COUNTY_FIPS][["geometry"]]
     context = counties[counties["GEOID"].isin(CONTEXT_COUNTIES)].copy()
     context["label"] = context["GEOID"].map(CONTEXT_COUNTIES)
@@ -268,7 +334,21 @@ def main():
         print(f"  warning: neighborhood boundaries unavailable ({e})")
 
     frames = []
-    if not args.skip_decennial:
+    if not args.skip_decennial and args.start == 1990:
+        for year in (1990, 2000):
+            print(f"Decennial {year} (Census Bureau)...")
+            pop = census_population(year)
+            gdf = legacy_tracts(year).merge(pop, on="GEOID", how="left")
+            unmatched = gdf["pop"].isna().sum()
+            if unmatched:
+                print(f"  warning: {unmatched} tract shapes had no population record")
+            gdf = finish(gdf, manhattan_land)
+            gdf.rename(columns={"GEOID": "tract_id"}).to_file(PROCESSED / f"tracts_{year}.gpkg")
+            # Totals come from the population records so that people with no
+            # mappable tract (1990 "crews of vessels", tract .99) still count.
+            frames.append({"year": year, "label": str(year), "source": "Decennial Census",
+                           "total": int(pop["pop"].sum()), "tracts": len(gdf)})
+    elif not args.skip_decennial:
         nhgis_dir = args.nhgis_dir
         if not nhgis_dir:
             key = os.environ.get("IPUMS_API_KEY")
@@ -296,7 +376,7 @@ def main():
         gdf.rename(columns={"GEOID": "tract_id"}).to_file(PROCESSED / f"tracts_{year}.gpkg")
         frames.append({"year": year, "label": f"{year - 4}–{str(year)[2:]}",
                        "source": "ACS 5-year estimate",
-                       "total": int(gdf["pop"].sum()), "tracts": len(gdf)})
+                       "total": int(pop["pop"].sum()), "tracts": len(gdf)})
 
     (PROCESSED / "frames.json").write_text(json.dumps(frames, indent=2, ensure_ascii=False))
     pd.DataFrame(frames).to_csv(PROCESSED / "manhattan_totals.csv", index=False)

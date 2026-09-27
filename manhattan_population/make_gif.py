@@ -141,7 +141,9 @@ def render(frame, frames, layers):
     bx.tick_params(length=0)
     fig.text(0.625, 0.245, "Manhattan total population", fontsize=11, fontweight="bold", zorder=6)
 
-    fig.text(0.625, 0.016, "Source: U.S. Census Bureau decennial census\n(1950–2000, via IPUMS NHGIS) and ACS 5-year\n"
+    decennial = ("(1950–2000, via IPUMS NHGIS)" if frames[0]["year"] < 1990
+                 else "(1990 PL 94-171, 2000 SF1)")
+    fig.text(0.625, 0.016, f"Source: U.S. Census Bureau decennial census\n{decennial} and ACS 5-year\n"
              "estimates (table B01003). Each year is drawn\non its own census-tract boundaries.",
              fontsize=8, color=INK_MUTED, linespacing=1.2, zorder=6)
 

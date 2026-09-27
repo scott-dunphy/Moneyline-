@@ -1,36 +1,41 @@
-# Manhattan population by census tract, 1950 to today
+# Manhattan population by census tract, 1990 to today
 
-An animated tract map of Manhattan's population density from the 1950
+An animated tract map of Manhattan's population density from the 1990
 census through the latest ACS 5-year estimate, with neighborhood labels,
-for web publication.
+for web publication. Also exported as MP4 and as one PNG per year.
 
 ![Manhattan population animation](output/manhattan_population.gif)
 
 ## Data
 
-| Years | Source | Boundaries |
+| Years | Population | Tract boundaries |
 |---|---|---|
-| 1950, 1960, 1970, 1980, 1990, 2000 | Decennial census tract counts via [IPUMS NHGIS](https://www.nhgis.org) | NHGIS historical tract shapefiles |
-| 2006–10, 2010–14, 2015–19, latest | ACS 5-year estimates, table B01003 (total population) | TIGER cartographic tracts of the matching vintage |
+| 1990 | Census Bureau 1990 PL 94-171 redistricting file | Census Bureau 1990 cartographic tracts |
+| 2000 | Census 2000 SF1 (Census API, `P001001`) | Census Bureau 2000 cartographic tracts |
+| 2006–10, 2010–14, 2015–19, latest | ACS 5-year estimates, table B01003 | TIGER cartographic tracts of the matching vintage |
 
-The ACS begins in 2005, so the earlier years have to come from the decennial
-census. Each year is drawn on its own tract boundaries and clipped to the same
-Manhattan shoreline. Tracts are colored by **people per square mile of land**,
-which stays comparable even though the tract lines change. Tracts with fewer
-than 100 residents (parks, rail yards and similar) are hatched.
+All sources come directly from the Census Bureau. Each year is drawn on its
+own tract boundaries, clipped to Manhattan's land (TIGER area-water removed,
+22.65 sq mi). Tracts are colored by **people per square mile of land**, which
+stays comparable even though the tract lines change. Tracts with fewer than
+100 residents (parks, rail yards and similar) are hatched. Totals match the
+official counts: 1,487,536 in 1990, including 257 "crews of vessels" with no
+mappable tract, and 1,537,195 in 2000.
+
+Going back to 1950 (`--start 1950`) needs IPUMS NHGIS, the only source of
+digitized pre-1990 tract boundaries, and an IPUMS account registered for NHGIS.
 
 ## Run it
 
 ```bash
 pip install -r requirements.txt
 export CENSUS_API_KEY=...   # https://api.census.gov/data/key_signup.html
-export IPUMS_API_KEY=...    # https://account.ipums.org/api_keys (account must be registered for NHGIS)
-python fetch_data.py        # writes data/processed/
+python fetch_data.py        # 1990 -> today; writes data/processed/
 python make_gif.py          # writes output/manhattan_population.gif, .mp4, and a PNG per year
 ```
 
-Instead of an IPUMS key, you can download the NHGIS extract yourself and run
-`python fetch_data.py --nhgis-dir <folder with the *_csv.zip and *_shape.zip>`.
+For 1950 onward: `IPUMS_API_KEY=... python fetch_data.py --start 1950`, or download
+the NHGIS extract yourself and add `--nhgis-dir <folder with the *_csv.zip and *_shape.zip>`.
 
 Timing flags: `--hold` (seconds per year, default 4.5), `--first-hold` (7),
 `--last-hold` (9), `--fade` (crossfade seconds, 1.2).
