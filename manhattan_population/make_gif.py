@@ -165,11 +165,11 @@ def load():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--hold", type=float, default=4.5, help="seconds on each year")
-    ap.add_argument("--first-hold", type=float, default=7.0, help="seconds on the opening year")
-    ap.add_argument("--last-hold", type=float, default=9.0, help="seconds on the final year")
-    ap.add_argument("--fade", type=float, default=1.2, help="seconds of crossfade between years")
-    ap.add_argument("--fade-steps", type=int, default=6)
+    ap.add_argument("--hold", type=float, default=2.5, help="seconds on each year")
+    ap.add_argument("--first-hold", type=float, default=4.0, help="seconds on the opening year")
+    ap.add_argument("--last-hold", type=float, default=5.0, help="seconds on the final year")
+    ap.add_argument("--fade", type=float, default=0.6, help="seconds of crossfade between years")
+    ap.add_argument("--fade-steps", type=int, default=4)
     ap.add_argument("--no-mp4", action="store_true")
     args = ap.parse_args()
 
