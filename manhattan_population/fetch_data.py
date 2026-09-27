@@ -39,6 +39,21 @@ IPUMS = "https://api.ipums.org"
 NTA_URL = "https://data.cityofnewyork.us/api/geospatial/9nt8-h7nd?method=export&format=GeoJSON"
 
 session = requests.Session()
+session.mount("https://", requests.adapters.HTTPAdapter(max_retries=requests.adapters.Retry(
+    total=5, backoff_factor=2, status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=None)))
+
+# Tract-level total-population table for each census, checked against the
+# IPUMS metadata API. 1970 publishes no single total at tract level, so its
+# Sex-by-Race table is summed.
+NHGIS_TABLES = {
+    1950: ("1950_tPH_Major", "NT1", "BZ8"),   # Total Population
+    1960: ("1960_tPH", "NTSUP2", "CA4"),      # Total Persons
+    1970: ("1970_Cnt2", "NT1", "CEB"),        # Sex by Race (summed)
+    1980: ("1980_STF1", "NT1A", "C7L"),       # Persons
+    1990: ("1990_STF1", "NP1", "ET1"),        # Persons
+    2000: ("2000_SF1a", "NP001A", "FL5"),     # Total Population
+}
 
 
 def download(url, dest, headers=None):
@@ -83,26 +98,34 @@ def tiger_tracts(year):
 
 # ---------------------------------------------------------------------- ACS
 
-def acs_released(year):
-    try:
-        r = session.get(ACS_API.format(year=year), params={"get": "NAME", "for": "us:1"}, timeout=30)
-        return r.status_code == 200 and r.text.lstrip().startswith("[")
-    except requests.RequestException:
-        return False
+def summary_file_url(year):
+    # Table-based ACS summary files (2021 onward) need no API key.
+    return (f"https://www2.census.gov/programs-surveys/acs/summary_file/{year}/"
+            f"table-based-SF/data/5YRData/acsdt5y{year}-b01003.dat")
 
 
 def latest_acs_year():
-    for year in range(dt.date.today().year, 2009, -1):
-        if acs_released(year):
+    for year in range(dt.date.today().year, 2020, -1):
+        if session.head(summary_file_url(year), timeout=30).status_code == 200:
             return year
-    raise RuntimeError("Could not reach the Census API to find the latest ACS release.")
+    raise RuntimeError("Could not find an ACS 5-year release on www2.census.gov.")
 
 
 def acs_population(year):
+    if year >= 2021:
+        path = download(summary_file_url(year), RAW / "acs" / f"acsdt5y{year}-b01003.dat")
+        df = pd.read_csv(path, sep="|", dtype=str)
+        df = df[df["GEO_ID"].str.startswith(f"1400000US{STATE_FIPS}{COUNTY_FIPS}")].copy()
+        df["GEOID"] = df["GEO_ID"].str[-11:]
+        df["pop"] = pd.to_numeric(df["B01003_E001"]).clip(lower=0)
+        df["moe"] = pd.to_numeric(df["B01003_M001"], errors="coerce")
+        return df[["GEOID", "pop", "moe"]]
+    key = os.environ.get("CENSUS_API_KEY")
+    if not key:
+        raise RuntimeError(f"ACS {year} needs the Census API: set CENSUS_API_KEY "
+                           "(free at https://api.census.gov/data/key_signup.html).")
     params = {"get": "B01003_001E,B01003_001M", "for": "tract:*",
-              "in": f"state:{STATE_FIPS} county:{COUNTY_FIPS}"}
-    if os.environ.get("CENSUS_API_KEY"):
-        params["key"] = os.environ["CENSUS_API_KEY"]
+              "in": f"state:{STATE_FIPS} county:{COUNTY_FIPS}", "key": key}
     r = session.get(ACS_API.format(year=year), params=params, timeout=120)
     r.raise_for_status()
     rows = r.json()
@@ -134,33 +157,17 @@ def ipums_paged(path, key):
 
 
 def discover_nhgis(key):
-    """Find, for each decennial year, a tract-level total-population table and
-    the matching tract shapefile, using the IPUMS metadata API."""
-    datasets = ipums_paged("/metadata/datasets", key)
+    """Pair each census's population table with the newest-basis NHGIS tract shapefile."""
     shapefiles = ipums_paged("/metadata/shapefiles", key)
     plan = {}
     for year in DECENNIAL_YEARS:
-        choice = None
-        for ds in (d for d in datasets if d["name"].startswith(f"{year}_")):
-            meta = ipums("GET", f"/metadata/datasets/{ds['name']}", key)
-            if not any(g["name"] == "tract" for g in meta.get("geogLevels", [])):
-                continue
-            for t in meta.get("dataTables", []):
-                if t["description"].strip().lower() == "total population":
-                    choice = (ds["name"], t["name"], t["nhgisCode"])
-                    break
-            if choice:
-                break
-        if not choice:
-            raise RuntimeError(f"No tract-level 'Total Population' table found for {year}.")
-        shp = [s for s in shapefiles if str(s["year"]) == str(year)
-               and s["geographicLevel"].lower() == "census tract"
-               and s["extent"].lower() == "united states"]
+        dataset, table, code = NHGIS_TABLES[year]
+        shp = sorted((s for s in shapefiles if str(s["year"]) == str(year)
+                      and s["geographicLevel"].lower() == "census tract"
+                      and s["extent"].lower() == "united states"), key=lambda s: s["basis"])
         if not shp:
             raise RuntimeError(f"No NHGIS tract shapefile found for {year}.")
-        shp.sort(key=lambda s: s["basis"])  # newest TIGER basis last
-        plan[year] = {"dataset": choice[0], "table": choice[1], "code": choice[2],
-                      "shapefile": shp[-1]["name"]}
+        plan[year] = {"dataset": dataset, "table": table, "code": code, "shapefile": shp[-1]["name"]}
         print(f"  {year}: {plan[year]}")
     return plan
 
@@ -196,15 +203,11 @@ def request_nhgis_extract(key):
     return dest
 
 
-def _pop_column(df, code=None):
-    if code and f"{code}001" in df:
-        return f"{code}001"
-    geo_cols = {"GISJOIN", "YEAR", "STATE", "STATEA", "COUNTY", "COUNTYA", "TRACTA",
-                "NAME", "AREANAME", "PRETRACTA", "POSTTRCTA", "CTY_SUBA", "PLACEA", "SMSAA"}
-    candidates = [c for c in df.columns if c not in geo_cols and c.endswith("001")]
-    if len(candidates) != 1:
-        raise RuntimeError(f"Can't identify the population column among {list(df.columns)}")
-    return candidates[0]
+def _population(df, code):
+    cols = [c for c in df.columns if c.startswith(code)]
+    if not cols:
+        raise RuntimeError(f"No {code}* columns among {list(df.columns)}")
+    return df[cols].apply(pd.to_numeric).sum(axis=1)
 
 
 def nhgis_year(nhgis_dir, year, plan):
@@ -216,7 +219,7 @@ def nhgis_year(nhgis_dir, year, plan):
         with z.open(name) as f:
             df = pd.read_csv(f, dtype=str, skiprows=[1], encoding="latin-1")
     df = df[df["GISJOIN"].str.startswith(NHGIS_PREFIX)].copy()
-    df["pop"] = pd.to_numeric(df[_pop_column(df, plan.get(year, {}).get("code"))])
+    df["pop"] = _population(df, plan.get(year, {}).get("code") or NHGIS_TABLES[year][2])
     with zipfile.ZipFile(shp_zip) as z:
         inner = next(n for n in z.namelist() if n.endswith(".zip") and f"tract_{year}" in n)
     shp = gpd.read_file(f"zip://{shp_zip}!{inner}")
@@ -283,7 +286,12 @@ def main():
 
     for year in acs_years:
         print(f"ACS {year - 4}-{year}...")
-        gdf = tiger_tracts(year).merge(acs_population(year), on="GEOID", how="left")
+        try:
+            pop = acs_population(year)
+        except RuntimeError as e:
+            print(f"  skipped: {e}")
+            continue
+        gdf = tiger_tracts(year).merge(pop, on="GEOID", how="left")
         gdf = finish(gdf, manhattan_land)
         gdf.rename(columns={"GEOID": "tract_id"}).to_file(PROCESSED / f"tracts_{year}.gpkg")
         frames.append({"year": year, "label": f"{year - 4}–{str(year)[2:]}",

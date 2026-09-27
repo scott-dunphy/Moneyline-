@@ -1,0 +1,30 @@
+[
+  {
+    "year": 2010,
+    "label": "2006–10",
+    "source": "ACS 5-year estimate",
+    "total": 1583345,
+    "tracts": 288
+  },
+  {
+    "year": 2014,
+    "label": "2010–14",
+    "source": "ACS 5-year estimate",
+    "total": 1618398,
+    "tracts": 288
+  },
+  {
+    "year": 2019,
+    "label": "2015–19",
+    "source": "ACS 5-year estimate",
+    "total": 1631993,
+    "tracts": 288
+  },
+  {
+    "year": 2024,
+    "label": "2020–24",
+    "source": "ACS 5-year estimate",
+    "total": 1629477,
+    "tracts": 310
+  }
+]
